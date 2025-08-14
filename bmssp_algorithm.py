@@ -1,173 +1,290 @@
-# file: bmssp_algorithm_final.py
-
 import heapq
 import math
+from collections import defaultdict, deque
 
-# --- Component 1: The Specialized Priority Queue (No Changes) ---
 class SpecializedPriorityQueue:
-    # ... (This class is complete and correct, no changes needed)
+    """
+    A bucket-based priority queue optimized for batch decrease-key operations.
+    Uses logarithmic bucketing to group nodes by distance ranges.
+    """
+    
     def __init__(self):
         self.buckets = {}
         self.pending_updates = []
         self.min_bucket_idx = float('inf')
+        self.size = 0
+    
     def _get_bucket_idx(self, dist):
-        if dist <= 0: return 0
+        """Map distance to bucket index using logarithmic bucketing."""
+        if dist <= 0:
+            return 0
+        if dist == 1:
+            return 0
         return math.floor(math.log2(dist))
-    def INITIALIZE(self, M, B):
-        max_idx = self._get_bucket_idx(B) if B > 0 else 0
-        self.buckets = {i: [] for i in range(max_idx + 1)}
+    
+    def initialize(self, max_bound):
+        """Initialize buckets for distances up to max_bound."""
+        if max_bound <= 0:
+            max_bucket = 0
+        else:
+            max_bucket = self._get_bucket_idx(max_bound)
+        
+        self.buckets = {i: [] for i in range(max_bucket + 1)}
         self.pending_updates = []
         self.min_bucket_idx = float('inf')
-    def BATCHDECREASEKEY(self, K):
-        self.pending_updates.extend(K)
+        self.size = 0
+    
+    def batch_decrease_key(self, updates):
+        """Add multiple (vertex, distance) updates to be processed lazily."""
+        self.pending_updates.extend(updates)
+    
     def _process_pending_updates(self):
-        if not self.pending_updates: return
+        """Process all pending updates and update bucket structure."""
+        if not self.pending_updates:
+            return
+            
         for vertex, dist in self.pending_updates:
-            idx = self._get_bucket_idx(dist)
-            if idx in self.buckets:
-                self.buckets[idx].append((dist, vertex))
-                if idx < self.min_bucket_idx:
-                    self.min_bucket_idx = idx
+            bucket_idx = self._get_bucket_idx(dist)
+            if bucket_idx in self.buckets:
+                self.buckets[bucket_idx].append((dist, vertex))
+                self.size += 1
+                if bucket_idx < self.min_bucket_idx:
+                    self.min_bucket_idx = bucket_idx
+        
         self.pending_updates = []
+    
     def is_empty(self):
+        """Check if queue is empty after processing pending updates."""
         self._process_pending_updates()
-        return self.min_bucket_idx == float('inf')
-    def EXTRACT_MIN(self):
+        return self.size == 0
+    
+    def extract_min(self):
+        """Extract the minimum distance vertex from the queue."""
         self._process_pending_updates()
-        if self.min_bucket_idx == float('inf'):
-            raise IndexError("EXTRACT_MIN from an empty queue")
-        active_bucket_idx = self.min_bucket_idx
-        active_bucket = self.buckets[active_bucket_idx]
-        min_dist, min_vertex = min(active_bucket, key=lambda item: item[0])
-        active_bucket.remove((min_dist, min_vertex))
-        if not active_bucket:
-            new_min_idx = float('inf')
-            for i in range(active_bucket_idx + 1, len(self.buckets)):
-                if self.buckets[i]:
-                    new_min_idx = i
-                    break
-            self.min_bucket_idx = new_min_idx
-        return active_bucket_idx, min_dist, min_vertex
+        
+        if self.size == 0:
+            raise IndexError("extract_min from empty queue")
+        
+        # Find the minimum non-empty bucket
+        while self.min_bucket_idx < len(self.buckets) and not self.buckets[self.min_bucket_idx]:
+            self.min_bucket_idx += 1
+        
+        if self.min_bucket_idx >= len(self.buckets):
+            raise IndexError("No non-empty buckets found")
+        
+        # Extract minimum from this bucket
+        bucket = self.buckets[self.min_bucket_idx]
+        min_item = min(bucket, key=lambda x: x[0])
+        bucket.remove(min_item)
+        self.size -= 1
+        
+        # Update min_bucket_idx if this bucket is now empty
+        if not bucket:
+            self._find_next_min_bucket()
+        
+        return min_item[1], min_item[0]  # vertex, distance
+    
+    def _find_next_min_bucket(self):
+        """Find the next non-empty bucket index."""
+        self.min_bucket_idx = float('inf')
+        for idx in sorted(self.buckets.keys()):
+            if self.buckets[idx]:
+                self.min_bucket_idx = idx
+                break
 
-# --- Component 2: The Main BMSSP Algorithm Class (Updated bmssp method) ---
-class BMSSP:
+
+class BMSSPSolver:
+    """
+    Implementation of the Bounded Multi-Source Shortest Path algorithm.
+    """
+    
     def __init__(self, graph):
         self.graph = graph
-        # D is now specific to each call, so we don't initialize it here.
-        # Global distances are needed to ensure we don't lose progress between recursive calls.
-        self.global_distances = {vertex: float('inf') for vertex in self.graph}
-
-    def _relax_edges(self, node_to_relax_from, current_bound):
-        updates = []
-        u = node_to_relax_from
-        for v, weight in self.graph.get(u, {}).items():
-            if self.global_distances[u] + weight < self.global_distances[v]:
-                new_dist = self.global_distances[u] + weight
-                if new_dist < current_bound:
-                    self.global_distances[v] = new_dist
-                    updates.append((v, new_dist))
-        return updates
-
-    def FastDijkstra(self, B, S):
+        self.vertices = set()
+        for u in graph:
+            self.vertices.add(u)
+            for v in graph[u]:
+                self.vertices.add(v)
+        
+        # Global state shared across recursive calls
+        self.global_distances = {v: float('inf') for v in self.vertices}
+        self.visited_global = set()
+    
+    def fast_dijkstra(self, sources, bound):
+        """
+        A bounded Dijkstra's algorithm that serves as the base case
+        for BMSSP recursion. Explores easily reachable nodes first.
+        """
         pq = []
-        # FastDijkstra works with the global distances
-        for source in S:
-            if source in self.global_distances and self.global_distances[source] == float('inf'):
-                self.global_distances[source] = 0
-            # We still use a local distance tracker for the heap logic
-            heapq.heappush(pq, (self.global_distances.get(source, 0), source))
+        local_visited = set()
         
-        completed_vertices = {}
+        # Initialize with sources
+        for source in sources:
+            if source in self.global_distances:
+                if self.global_distances[source] == float('inf'):
+                    self.global_distances[source] = 0
+                heapq.heappush(pq, (self.global_distances[source], source))
+        
         while pq:
-            dist, current_vertex = heapq.heappop(pq)
-            if dist > self.global_distances[current_vertex] or dist >= B: continue
-            completed_vertices[current_vertex] = dist
-            for neighbor, weight in self.graph.get(current_vertex, {}).items():
-                new_dist = dist + weight
-                if new_dist < self.global_distances[neighbor]:
-                    self.global_distances[neighbor] = new_dist
-                    heapq.heappush(pq, (new_dist, neighbor))
-        U_prime = set(completed_vertices.keys())
-        return U_prime
-
-    # --- THE FINAL RECURSIVE bmssp METHOD ---
-    def bmssp(self, B, S, recursion_level=0):
-        indent = "  " * recursion_level
-        print(f"\n{indent}--- Starting BMSSP (Lvl {recursion_level}) with B={B:.2f} & S={S} ---")
-
-        # The base case of the recursion is handled by FastDijkstra.
-        # For small B, it effectively solves the problem.
-        U = self.FastDijkstra(B, S)
-        
-        D = SpecializedPriorityQueue()
-        D.INITIALIZE(M=None, B=B)
-        
-        # Seed the queue D with the initial frontier
-        initial_batch = []
-        for u in U:
+            dist, u = heapq.heappop(pq)
+            
+            # Skip if we've found a better path or exceeded bound
+            if u in local_visited or dist >= bound:
+                continue
+            
+            local_visited.add(u)
+            
+            # Relax edges
             for v, weight in self.graph.get(u, {}).items():
-                 if v not in U:
-                    initial_batch.append((v, self.global_distances[v]))
-        D.BATCHDECREASEKEY(initial_batch)
-
-        print(f"{indent}Main loop starting...")
-        k = 1
+                new_dist = dist + weight
+                if new_dist < self.global_distances[v] and new_dist < bound:
+                    self.global_distances[v] = new_dist
+                    heapq.heappush(pq, (new_dist, v))
         
-        while len(U) < k * (2**B) and not D.is_empty():
+        return local_visited
+    
+    def _collect_frontier(self, explored_set, bound):
+        """
+        Collect frontier nodes (unexplored nodes adjacent to explored ones)
+        for seeding the specialized priority queue.
+        """
+        frontier = []
+        for u in explored_set:
+            for v, weight in self.graph.get(u, {}).items():
+                if v not in explored_set and self.global_distances[v] < bound:
+                    frontier.append((v, self.global_distances[v]))
+        return frontier
+    
+    def bmssp(self, sources, bound, max_recursion_depth=10, current_depth=0):
+        """
+        Main BMSSP algorithm implementation.
+        
+        Args:
+            sources: Set of source vertices
+            bound: Maximum path length to consider
+            max_recursion_depth: Prevent infinite recursion
+            current_depth: Current recursion level
+        
+        Returns:
+            Set of vertices reachable within the bound
+        """
+        indent = "  " * current_depth
+        print(f"{indent}BMSSP (depth {current_depth}): bound={bound:.2f}, sources={len(sources)}")
+        
+        # Base case: Use fast Dijkstra for initial exploration
+        explored = self.fast_dijkstra(sources, bound)
+        
+        # Termination conditions
+        if (current_depth >= max_recursion_depth or 
+            bound <= 1 or 
+            len(explored) == 0):
+            return explored
+        
+        # Initialize specialized priority queue
+        pq = SpecializedPriorityQueue()
+        pq.initialize(bound)
+        
+        # Seed with frontier nodes
+        frontier = self._collect_frontier(explored, bound)
+        if frontier:
+            pq.batch_decrease_key(frontier)
+        
+        # Main recursive exploration loop
+        iteration = 0
+        max_iterations = min(100, len(self.vertices))  # Prevent infinite loops
+        
+        while not pq.is_empty() and iteration < max_iterations:
             try:
-                # 1. DIVIDE: Pick a new subproblem to solve
-                _, d_min, m_i = D.EXTRACT_MIN()
+                vertex, distance = pq.extract_min()
             except IndexError:
                 break
             
-            if m_i in U: continue
-
-            # Define the subproblem's parameters
-            B_i = B - d_min # The new bound is what's left
-            S_i = {m_i}     # The new source is the node we extracted
-
-            if B_i <= 0: continue
-
-            # 2. CONQUER: Recursively solve the subproblem
-            print(f"{indent}Recursively calling BMSSP for node '{m_i}' with new bound B'={B_i:.2f}")
-            U_from_recursion = self.bmssp(B_i, S_i, recursion_level + 1)
-
-            # 3. COMBINE: Integrate the results
-            U.update(U_from_recursion)
+            # Skip if already explored or distance exceeds bound
+            if vertex in explored or distance >= bound:
+                iteration += 1
+                continue
             
-            # And relax the edges from the newly discovered nodes
-            new_updates = []
-            for u_new in U_from_recursion:
-                new_updates.extend(self._relax_edges(u_new, B))
+            # Define recursive subproblem
+            remaining_bound = bound - distance
+            if remaining_bound <= 0:
+                iteration += 1
+                continue
             
-            if new_updates:
-                print(f"{indent}Recursion for '{m_i}' found {len(new_updates)} new paths. Batch updating D.")
-                D.BATCHDECREASEKEY(new_updates)
+            print(f"{indent}  Recursing on vertex {vertex} with remaining bound {remaining_bound:.2f}")
+            
+            # Recursive call with tighter bound
+            sub_explored = self.bmssp({vertex}, remaining_bound, max_recursion_depth, current_depth + 1)
+            
+            # Merge results
+            new_vertices = sub_explored - explored
+            explored.update(sub_explored)
+            
+            # Update frontier with newly accessible vertices
+            if new_vertices:
+                new_frontier = self._collect_frontier(new_vertices, bound)
+                if new_frontier:
+                    pq.batch_decrease_key(new_frontier)
+            
+            iteration += 1
+        
+        print(f"{indent}BMSSP (depth {current_depth}) found {len(explored)} vertices")
+        return explored
+    
+    def solve(self, sources, bound):
+        """
+        Public interface for solving BMSSP.
+        
+        Args:
+            sources: Set or list of source vertices
+            bound: Maximum path length
+            
+        Returns:
+            Dictionary mapping vertices to their shortest distances
+        """
+        # Reset global state
+        self.global_distances = {v: float('inf') for v in self.vertices}
+        self.visited_global = set()
+        
+        # Set source distances
+        sources = set(sources)
+        for source in sources:
+            if source in self.global_distances:
+                self.global_distances[source] = 0
+        
+        # Run algorithm
+        reachable = self.bmssp(sources, bound)
+        
+        # Return results
+        return {v: self.global_distances[v] for v in reachable 
+                if self.global_distances[v] < bound}
 
-        print(f"{indent}--- BMSSP (Lvl {recursion_level}) Completed. Returning {len(U)} nodes. ---")
-        return U
 
-# --- Demonstration ---
+# Demonstration
 if __name__ == "__main__":
+    # Test graph
     sample_graph = {
         'A': {'B': 1, 'C': 8},
-        'B': {'C': 6, 'D': 8},
+        'B': {'C': 2, 'D': 3},
         'C': {'D': 1, 'E': 5},
-        'D': {'E': 1},
-        'E': {},
-        'F': {'G': 2},
+        'D': {'E': 1, 'F': 4},
+        'E': {'F': 2},
+        'F': {'G': 1},
         'G': {}
     }
-    search_bound = 15
-    source_nodes = {'A'}
-
-    solver = BMSSP(sample_graph)
-    # Initialize global distances for the first call
-    for source in source_nodes:
-        solver.global_distances[source] = 0
-
-    found_vertices = solver.bmssp(B=search_bound, S=source_nodes)
-
-    print(f"\nFinal Result: Vertices reachable from {source_nodes} within bound {search_bound} are:")
-    final_distances = {v: solver.global_distances[v] for v in found_vertices}
-    print(sorted(final_distances.items(), key=lambda item: item[1]))
+    
+    print("Testing BMSSP Implementation")
+    print("=" * 40)
+    
+    solver = BMSSPSolver(sample_graph)
+    sources = ['A']
+    bound = 10
+    
+    result = solver.solve(sources, bound)
+    
+    print(f"\nFinal Results:")
+    print(f"Sources: {sources}")
+    print(f"Bound: {bound}")
+    print(f"Reachable vertices and distances:")
+    
+    for vertex, distance in sorted(result.items(), key=lambda x: x[1]):
+        print(f"  {vertex}: {distance}")
