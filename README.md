@@ -1,4 +1,4 @@
-# When Theory Meets Reality: Implementing the BMSSP Algorithm
+# Implementation of the BMSSP Algorithm in python
 
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)](LICENSE)
@@ -13,6 +13,8 @@ This repository contains a complete implementation of the **Bounded Multi-Source
 **The Goal**: Translate academic pseudocode into working Python code and rigorously benchmark it against established algorithms like Dijkstra's.
 
 **The Result**: A fascinating exploration of why theoretically superior algorithms don't always win in practice, and valuable insights into the gap between academic theory and software engineering reality.
+
+📖 **Read the full story**: [Deconstructing the Shortest-Path Algorithm: A Deep Dive into Theory vs. Implementation](https://medium.com/@teggourabdenour/deconstructing-the-shortest-path-algorithm-a-deep-dive-into-theory-vs-implementation-3c6c8149ac16)
 
 ## 🧠 Understanding BMSSP
 
