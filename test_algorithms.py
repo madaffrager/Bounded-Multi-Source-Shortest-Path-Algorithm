@@ -1,5 +1,3 @@
-# file: test_algorithms.py
-
 import unittest
 import random
 
