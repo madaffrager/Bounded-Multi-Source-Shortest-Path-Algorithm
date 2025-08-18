@@ -1,104 +1,53 @@
 import heapq
-from collections import defaultdict
 
-def dijkstra_bounded_multi_source(graph, sources, bound):
+def dijkstra_bounded(graph, sources, bound):
     """
-    Multi-source bounded Dijkstra's algorithm.
-    
-    Args:
-        graph: Dictionary representing adjacency list {u: {v: weight, ...}, ...}
-        sources: List or set of source vertices
-        bound: Maximum path length to consider
-    
-    Returns:
-        Dictionary mapping reachable vertices to their shortest distances
+    Standard bounded multi-source Dijkstra.
+    Explore all nodes up to distance < bound.
     """
-    # Initialize distances
-    all_vertices = set()
-    for u in graph:
-        all_vertices.add(u)
-        for v in graph[u]:
-            all_vertices.add(v)
-    
-    distances = {v: float('inf') for v in all_vertices}
-    
-    # Priority queue: (distance, vertex)
     pq = []
-    
-    # Initialize sources
-    for source in sources:
-        if source in distances:
-            distances[source] = 0
-            heapq.heappush(pq, (0, source))
-    
-    visited = set()
-    
+    dist = {v: float("inf") for v in graph}
+    for s in sources:
+        dist[s] = 0
+        heapq.heappush(pq, (0, s))
+
     while pq:
-        current_dist, u = heapq.heappop(pq)
-        
-        # Skip if we've already processed this vertex with a better distance
-        if current_dist > distances[u]:
+        d, u = heapq.heappop(pq)
+        if d >= bound:
             continue
-        
-        # Skip if distance exceeds bound
-        if current_dist >= bound:
-            continue
-            
-        # Mark as visited
-        visited.add(u)
-        
-        # Relax all outgoing edges
-        for v, weight in graph.get(u, {}).items():
-            new_dist = current_dist + weight
-            
-            # Only consider if within bound and improves current distance
-            if new_dist < bound and new_dist < distances[v]:
-                distances[v] = new_dist
-                heapq.heappush(pq, (new_dist, v))
-    
-    # Return only reachable vertices with their distances
-    return {v: distances[v] for v in visited if distances[v] < bound}
+        for v, w in graph[u].items():
+            if d + w < bound and d + w < dist[v]:
+                dist[v] = d + w
+                heapq.heappush(pq, (dist[v], v))
+
+    return {v: d for v, d in dist.items() if d < bound}
 
 
-def dijkstra_single_source(graph, source, bound=float('inf')):
-    """
-    Single-source Dijkstra's algorithm with optional bound.
-    
-    Args:
-        graph: Dictionary representing adjacency list
-        source: Starting vertex
-        bound: Maximum path length (optional)
-    
-    Returns:
-        Dictionary mapping vertices to shortest distances from source
-    """
-    return dijkstra_bounded_multi_source(graph, [source], bound)
-
-
-# Testing and validation
+# Demo
 if __name__ == "__main__":
-    # Test graph
     test_graph = {
-        'A': {'B': 1, 'C': 8},
-        'B': {'C': 2, 'D': 3},
-        'C': {'D': 1, 'E': 5},
-        'D': {'E': 1, 'F': 4},
-        'E': {'F': 2},
-        'F': {'G': 1},
-        'G': {}
+        'A': {'B': 1, 'E': 10},
+        'B': {'C': 1, 'F': 8},
+        'C': {'D': 1, 'G': 6},
+        'D': {'H': 1},
+        'E': {'F': 1, 'I': 5},
+        'F': {'G': 1, 'J': 4},
+        'G': {'H': 1, 'K': 3},
+        'H': {'L': 1},
+        'I': {'J': 1, 'M': 2},
+        'J': {'K': 1, 'N': 2},
+        'K': {'L': 1, 'O': 2},
+        'L': {'P': 1},
+        'M': {'N': 1},
+        'N': {'O': 1},
+        'O': {'P': 1},
+        'P': {}
     }
-    
-    print("Testing Baseline Dijkstra Implementation")
-    print("=" * 45)
-    
-    # Test single source
-    print("\nSingle-source from 'A' with bound 10:")
-    result_single = dijkstra_single_source(test_graph, 'A', 10)
-    for vertex, dist in sorted(result_single.items(), key=lambda x: x[1]):
-        print(f"  {vertex}: {dist}")
-    
-    # Test multi-source
-    print("\nMulti-source from ['A', 'F'] with bound 8:")
-    result_multi = dijkstra_bounded_multi_source(test_graph, ['A', 'F'], 8)
-    for vertex, dist in sorted(result_multi.items(), key=lambda x: x[1]):
-        print(f"  {vertex}: {dist}")
+
+    sources = ['A']
+    bound = 15
+    result = dijkstra_bounded(test_graph, sources, bound)
+
+    print("Dijkstra results:")
+    for v, d in sorted(result.items(), key=lambda x: x[1]):
+        print(f"{v}: {d}")
